@@ -3,11 +3,29 @@
 const fs = require('fs');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { Command } = require('commander');
+const packageJson = require('./package.json');
 
-const [, , url, selector] = process.argv;
+const program = new Command();
+program.version(packageJson.version);
 
-async function downloadImagesFromWebPage(url, selector) {
+program
+  .option('-o, --output <directory>', 'Specify the output directory for downloaded images', process.cwd())
+  .option('-l, --limit <n>', 'Set the maximum number of images to download', parseInt)
+  .arguments('<url> <selector>')
+  .action((url, selector) => {
+    const options = program.opts();
+    downloadImagesFromWebPage(url, selector, options.output, options.limit);
+  })
+  .parse(process.argv);
+
+async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) {
   try {
+    if (!fs.existsSync(outputDirectory)) {
+      fs.mkdirSync(outputDirectory, { recursive: true });
+      console.log(`Created output directory: ${outputDirectory}`);
+    }
+
     const response = await axios.get(url);
     const html = response.data;
     const $ = cheerio.load(html);
@@ -25,7 +43,15 @@ async function downloadImagesFromWebPage(url, selector) {
       const imageName = imageUrl.split('/').pop();
 
       if (!downloadedSet.has(imageName)) {
-        if (await downloadImage(imageUrl)) {
+        if (limit && downloadedCount >= limit) {
+          break;
+        }
+
+        const filePath = `${outputDirectory}/${imageName}`;
+        if (fs.existsSync(filePath)) {
+          console.log(`Skipping download: ${imageName} (Already downloaded)`);
+        } else {
+          await downloadImage(imageUrl, filePath);
           downloadedSet.add(imageName);
           downloadedCount++;
         }
@@ -42,28 +68,12 @@ async function downloadImagesFromWebPage(url, selector) {
   }
 }
 
-async function downloadImage(imageUrl) {
+async function downloadImage(imageUrl, filePath) {
   try {
     const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-    const imageName = imageUrl.split('/').pop();
-
-    if (fs.existsSync(imageName)) {
-      console.log(`Skipping download: ${imageName} (Already downloaded)`);
-      return false;
-    }
-    
-    fs.writeFileSync(imageName, Buffer.from(response.data));
-    console.log(`Downloaded: ${imageName}`);
-    return true;
+    fs.writeFileSync(filePath, Buffer.from(response.data));
+    console.log(`Downloaded: ${filePath}`);
   } catch (error) {
     console.error('Error occurred while downloading image:', error.message);
-    return false;
   }
 }
-
-if (!url || !selector) {
-  console.error('Please provide the URL and selector as command line arguments.');
-  process.exit(1);
-}
-
-downloadImagesFromWebPage(url, selector);
