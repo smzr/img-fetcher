@@ -1,5 +1,8 @@
 # img-fetcher
 
+![npm](https://img.shields.io/npm/v/img-fetcher)
+![npm](https://img.shields.io/npm/dw/img-fetcher)
+
 img-fetcher is a simple CLI tool that allows you to download images from a web page using a CSS selector.
 
 ## How to Use
@@ -37,5 +40,9 @@ Replace `<URL>` with the URL of the web page and `<SELECTOR>` with the CSS selec
 img-fetcher https://example.com/ 'img'
 ```
 
-### Contributing
+## Contributing
 If you find any issues with the tool or want to contribute, feel free to open an issue or submit a pull request on GitHub. 
+
+## License
+
+MIT License © 2023 [Sammy McKay](https://github.com/smzr)
