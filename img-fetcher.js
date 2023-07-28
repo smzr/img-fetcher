@@ -5,6 +5,8 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { Command } = require('commander');
 const packageJson = require('./package.json');
+const { resolve } = require('url');
+const { basename } = require('path');
 
 const program = new Command();
 program.version(packageJson.version);
@@ -21,6 +23,11 @@ program
 
 async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) {
   try {
+    const baseImageUrl = new URL(url);
+    const baseProtocol = baseImageUrl.protocol;
+    const baseHostname = baseImageUrl.hostname;
+    const basePath = baseImageUrl.pathname.replace(/\/[^/]*$/, '');
+
     if (!fs.existsSync(outputDirectory)) {
       fs.mkdirSync(outputDirectory, { recursive: true });
       console.log(`Created output directory: ${outputDirectory}`);
@@ -40,7 +47,15 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
     const downloadedSet = new Set();
     let downloadedCount = 0;
     for (const imageUrl of images) {
-      const imageName = imageUrl.split('/').pop();
+      let absoluteImageUrl = imageUrl;
+
+      // check if image url is relative
+      if ( !/^(?:[a-z]+:)?\/\//i.test(imageUrl) ) {
+        absoluteImageUrl = resolve(`${baseProtocol}//${baseHostname}${basePath}`, imageUrl);
+      }
+
+      const { pathname } = new URL(absoluteImageUrl);
+      const imageName = basename(pathname);
 
       if (!downloadedSet.has(imageName)) {
         if (limit && downloadedCount >= limit) {
@@ -51,7 +66,7 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
         if (fs.existsSync(filePath)) {
           console.log(`Skipping download: ${imageName} (Already downloaded)`);
         } else {
-          await downloadImage(imageUrl, filePath);
+          await downloadImage(absoluteImageUrl, filePath);
           downloadedSet.add(imageName);
           downloadedCount++;
         }
