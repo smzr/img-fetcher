@@ -16,8 +16,9 @@ const { rejects } = require('assert');
 */
 function createDownloadProgressBarFormat(description) {
   return function dataProgessBarFormatter(options, params, _payload) {
-    const bar = options.barCompleteString.substr(0, Math.round(params.progress * options.barsize));
     // Sometimes we don't have access to the total
+    const barProgress = Math.round(params.progress * options.barCompleteString.length);
+    const bar = options.barCompleteString.substr(0, barProgress).padEnd(options.barCompleteString.length);
     if (params.total <= 0) {
       return `${description.substring(0, 50)} | ${bar} | ${params.value} bytes`;
     } else {
