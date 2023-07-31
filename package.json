@@ -1,6 +1,6 @@
 {
   "name": "img-fetcher",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Download images from web pages using CSS selectors.",
   "homepage": "https://github.com/smzr/img-fetcher#readme",
   "repository": {

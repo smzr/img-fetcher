@@ -9,19 +9,13 @@ const packageJson = require('./package.json');
 const { resolve } = require('url');
 const { basename } = require('path');
 
-const program = new Command();
-program.version(packageJson.version);
-
-program
-  .option('-o, --output <directory>', 'Specify the output directory for downloaded images', process.cwd())
-  .option('-l, --limit <n>', 'Set the maximum number of images to download', Math.floor, 100)
-  .arguments('<url> <selector>')
-  .action((url, selector) => {
-    const options = program.opts();
-    downloadImagesFromWebPage(url, selector, options.output, options.limit);
-  })
-  .parse(process.argv);
-
+/**
+ * Downloads images from a web page based on a CSS selector.
+ * @param {string} url - The URL of the web page to download images from.
+ * @param {string} selector - The CSS selector to use to find images on the web page.
+ * @param {string} outputDirectory - The directory to save downloaded images to.
+ * @param {number} limit - The maximum number of images to download.
+ */
 async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) {
   try {
     const baseImageUrl = new URL(url);
@@ -29,14 +23,22 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
     const baseHostname = baseImageUrl.hostname;
     const basePath = baseImageUrl.pathname.replace(/\/[^/]*$/, '');
 
+    // Create output directory if it doesn't exist
     if (!fs.existsSync(outputDirectory)) {
       fs.mkdirSync(outputDirectory, { recursive: true });
       console.log(`Created output directory: ${outputDirectory}`);
     }
 
-    // Download data using axios
+    /**
+     * Formats the progress bar for data fetching.
+     * @param {object} options - The options for the progress bar.
+     * @param {object} params - The parameters for the progress bar.
+     * @param {object} _payload - The payload for the progress bar.
+     * @returns {string} - The formatted progress bar string.
+     */
     function dataProgessBarFormatter(options, params, _payload) {
       const bar = options.barCompleteString.substr(0, Math.round(params.progress * options.barsize));
+
       // Sometimes we don't have access to the total
       if (params.total <= 0) {
         return `Fetching data | ${bar} | ${params.value}`;
@@ -44,12 +46,16 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
         return `Fetching data | ${bar} | ${params.value}/${params.total}`;
       }
     }
+
+    // Create progress bar for data fetching
     const dataProgessBar = new cliProgress.SingleBar({
       clearOnComplete: false,
       hideCursor: true,
       forceRedraw: true,
       format: dataProgessBarFormatter
     }, cliProgress.Presets.shades_classic);
+
+    // Fetch data from web page
     dataProgessBar.start(0);
     const response = await axios.get(url, {
       onDownloadProgress: progressEvent => {
@@ -62,9 +68,12 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
       }
     });
     dataProgessBar.stop();
+
+    // Load data into cheerio
     const html = response.data;
     const $ = cheerio.load(html);
 
+    // Find images on web page using CSS selector
     const images = [];
     $(selector).each((_index, element) => {
       const src = $(element).attr('src');
@@ -81,18 +90,19 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
       forceRedraw: true,
       format: 'Downloading images | {bar} | {imageName} | {value}/{total}',
     }, cliProgress.Presets.shades_classic);
+
     if (images.length > 0) {
       imageProgessBar.start(Math.min(limit, images.length));
       for (const imageUrl of images) {
-        // Check if weve exceeded the limit
+        // Check if we've exceeded the limit
         if (downloadedCount + skippedCount >= limit) {
           break;
         }
 
         let absoluteImageUrl = imageUrl;
 
-        // check if image url is relative
-        if ( !/^(?:[a-z]+:)?\/\//i.test(imageUrl) ) {
+        // Check if image URL is relative
+        if (!/^(?:[a-z]+:)?\/\//i.test(imageUrl)) {
           absoluteImageUrl = resolve(`${baseProtocol}//${baseHostname}${basePath}`, imageUrl);
         }
 
@@ -101,6 +111,7 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
 
         if (!downloadedSet.has(imageName)) {
           const filePath = `${outputDirectory}/${imageName}`;
+
           if (fs.existsSync(filePath)) {
             imageProgessBar.increment({imageName: `Skipping ${imageName} (Already downloaded)`});
             skippedCount++;
@@ -118,6 +129,7 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
       imageProgessBar.stop();
     }
 
+    // Log results
     if (downloadedCount > 0) {
       console.log(`${downloadedCount} image${downloadedCount > 1 ? 's' : ''} were successfully downloaded.`);
     } else {
@@ -131,6 +143,11 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
   }
 }
 
+/**
+ * Downloads an image from a URL and saves it to a file.
+ * @param {string} imageUrl - The URL of the image to download.
+ * @param {string} filePath - The path to save the downloaded image to.
+ */
 async function downloadImage(imageUrl, filePath) {
   try {
     const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
@@ -139,3 +156,16 @@ async function downloadImage(imageUrl, filePath) {
     console.error('Error occurred while downloading image:', error.message);
   }
 }
+
+const program = new Command();
+program.version(packageJson.version);
+
+program
+  .option('-o, --output <directory>', 'Specify the output directory for downloaded images', process.cwd())
+  .option('-l, --limit <n>', 'Set the maximum number of images to download', Math.floor, 100)
+  .arguments('<url> <selector>')
+  .action((url, selector) => {
+    const options = program.opts();
+    downloadImagesFromWebPage(url, selector, options.output, options.limit);
+  })
+  .parse(process.argv);
