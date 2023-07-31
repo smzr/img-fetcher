@@ -8,6 +8,23 @@ const { Command } = require('commander');
 const packageJson = require('./package.json');
 const { resolve } = require('url');
 const { basename } = require('path');
+const { rejects } = require('assert');
+
+/**
+ * Helper for creating a download progress bar format.
+ * @param {string} description - Description of progress bar.
+*/
+function createDownloadProgressBarFormat(description) {
+  return function dataProgessBarFormatter(options, params, _payload) {
+    const bar = options.barCompleteString.substr(0, Math.round(params.progress * options.barsize));
+    // Sometimes we don't have access to the total
+    if (params.total <= 0) {
+      return `${description.substring(0, 50)} | ${bar} | ${params.value} bytes`;
+    } else {
+      return `${description.substring(0, 50)} | ${bar} | ${params.value}/${params.total} bytes`;
+    }
+  }
+}
 
 /**
  * Downloads images from a web page based on a CSS selector.
@@ -29,30 +46,10 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
       console.log(`Created output directory: ${outputDirectory}`);
     }
 
-    /**
-     * Formats the progress bar for data fetching.
-     * @param {object} options - The options for the progress bar.
-     * @param {object} params - The parameters for the progress bar.
-     * @param {object} _payload - The payload for the progress bar.
-     * @returns {string} - The formatted progress bar string.
-     */
-    function dataProgessBarFormatter(options, params, _payload) {
-      const bar = options.barCompleteString.substr(0, Math.round(params.progress * options.barsize));
-
-      // Sometimes we don't have access to the total
-      if (params.total <= 0) {
-        return `Fetching data | ${bar} | ${params.value}`;
-      } else {
-        return `Fetching data | ${bar} | ${params.value}/${params.total}`;
-      }
-    }
-
-    // Create progress bar for data fetching
+    // Create a progress bar for fetching the web page data
     const dataProgessBar = new cliProgress.SingleBar({
-      clearOnComplete: false,
-      hideCursor: true,
-      forceRedraw: true,
-      format: dataProgessBarFormatter
+      hideCursor: true, forceRedraw: true,
+      format: createDownloadProgressBarFormat('Downloading data')
     }, cliProgress.Presets.shades_classic);
 
     // Fetch data from web page
@@ -80,64 +77,83 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
       if (src) images.push(src);
     });
 
-    // Download images using fs
-    const downloadedSet = new Set();
+    // Create progress bars for downloading the images
+    let imageProgessBars = new cliProgress.MultiBar({},
+      cliProgress.Presets.shades_classic
+    );
+
+    // Create promises for downloading images
+    let downloadedSet = new Set();
     let downloadedCount = 0;
     let skippedCount = 0;
-    const imageProgessBar = new cliProgress.SingleBar({
-      clearOnComplete: false,
-      hideCursor: true,
-      forceRedraw: true,
-      format: 'Downloading images | {bar} | {imageName} | {value}/{total}',
-    }, cliProgress.Presets.shades_classic);
-
-    if (images.length > 0) {
-      imageProgessBar.start(Math.min(limit, images.length));
-      for (const imageUrl of images) {
-        // Check if we've exceeded the limit
-        if (downloadedCount + skippedCount >= limit) {
-          break;
-        }
-
-        let absoluteImageUrl = imageUrl;
-
-        // Check if image URL is relative
-        if (!/^(?:[a-z]+:)?\/\//i.test(imageUrl)) {
-          absoluteImageUrl = resolve(`${baseProtocol}//${baseHostname}${basePath}`, imageUrl);
-        }
-
-        const { pathname } = new URL(absoluteImageUrl);
-        const imageName = basename(pathname);
-
-        if (!downloadedSet.has(imageName)) {
-          const filePath = `${outputDirectory}/${imageName}`;
-
-          if (fs.existsSync(filePath)) {
-            imageProgessBar.increment({imageName: `Skipping ${imageName} (Already downloaded)`});
-            skippedCount++;
-          } else {
-            imageProgessBar.increment({imageName: `Downloading ${imageName}`});
-            await downloadImage(absoluteImageUrl, filePath);
-            downloadedSet.add(imageName);
-            downloadedCount++;
-          }
-        } else {
-          imageProgessBar.increment({imageName: `Skipping ${imageName} (Already downloaded)`});
-          skippedCount++;
-        }
+    let downloadTasks = images.map((imageUrl) => new Promise((resolve, reject) => {
+      // If the limit is exceeded, then resolve this task
+      if (downloadedCount + skippedCount >= limit) {
+        resolve();
       }
-      imageProgessBar.stop();
-    }
 
-    // Log results
-    if (downloadedCount > 0) {
-      console.log(`${downloadedCount} image${downloadedCount > 1 ? 's' : ''} were successfully downloaded.`);
-    } else {
-      console.log('No images were downloaded.');
-    }
-    if (skippedCount > 0) {
-      console.log(`${skippedCount} image${skippedCount > 1 ? 's' : ''} were already downloaded (or appeared more than once).`);
-    }
+      // Check if image URL is relative
+      const absoluteImageUrl = imageUrl;
+      if (!/^(?:[a-z]+:)?\/\//i.test(imageUrl)) {
+        absoluteImageUrl = resolve(`${baseProtocol}//${baseHostname}${basePath}`, imageUrl);
+      }
+
+      // Create a name and path for to-be-downloaded image
+      const { pathname } = new URL(absoluteImageUrl);
+      const imageName = basename(pathname);
+      const filePath = `${outputDirectory}/${imageName}`;
+
+      // If we should skip, then resolve this task
+      if (downloadedSet.has(imageName) || fs.existsSync(filePath)) {
+        skippedCount++;
+        resolve();
+      // Otherwise, attempt to download this image
+      } else {
+        // Create a progress bar for downloading this image
+        const paddedLength = 35;
+        const imageNamePadded = imageName.length > paddedLength
+          ? `${imageName.substring(0, paddedLength - 3)}...`
+          : imageName.padEnd(paddedLength);
+        const imageProgessBar = imageProgessBars.create(null, null, {}, {
+          hideCursor: true, forceRedraw: true, stopOnComplete: true,
+          format: createDownloadProgressBarFormat(`${imageNamePadded}`)
+        });
+
+        // Download this image
+        imageProgessBar.start(0);
+        downloadImage(absoluteImageUrl, filePath, (progressEvent) => {
+            if (progressEvent.total) {
+              imageProgessBar.setTotal(progressEvent.total);
+            } else {
+              imageProgessBar.setTotal(0);
+            }
+            imageProgessBar.update(progressEvent.loaded);
+        }, () => {
+          // If we succeed, then resolve this task
+          downloadedSet.add(imageName);
+          downloadedCount++;
+          resolve();
+        }, () => {
+          // If we fail, then reject this task
+          reject();
+        });
+      }
+    }));
+
+    // Run all our download tasks 
+    imageProgessBars.log('Downloading images\n');
+    Promise.all(downloadTasks).then(() => {
+      imageProgessBars.stop();
+      
+      if (downloadedCount > 0) {
+        console.log(`${downloadedCount} image${downloadedCount > 1 ? 's' : ''} were successfully downloaded.`);
+      } else {
+        console.log('No images were downloaded.');
+      }
+      if (skippedCount > 0) {
+        console.log(`${skippedCount} image${skippedCount > 1 ? 's' : ''} were already downloaded (or appeared more than once).`);
+      }
+    });
   } catch (error) {
     console.error('Error occurred:', error.message);
   }
@@ -147,13 +163,21 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
  * Downloads an image from a URL and saves it to a file.
  * @param {string} imageUrl - The URL of the image to download.
  * @param {string} filePath - The path to save the downloaded image to.
+.* @param {function} onProgress - Callback that provides download progress events
+.* @param {function} onDone - Callback that should be called when an error occurs.
+.* @param {function} onError - Callback that should be called when completed.
  */
-async function downloadImage(imageUrl, filePath) {
+async function downloadImage(imageUrl, filePath, onProgress, onDone, onError) {
   try {
-    const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      onDownloadProgress: onProgress
+    });
     fs.writeFileSync(filePath, Buffer.from(response.data));
+    onDone();
   } catch (error) {
     console.error('Error occurred while downloading image:', error.message);
+    onError();
   }
 }
 
