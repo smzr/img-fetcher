@@ -20,9 +20,9 @@ function createDownloadProgressBarFormat(description) {
     const barProgress = Math.round(params.progress * options.barCompleteString.length);
     const bar = options.barCompleteString.substr(0, barProgress).padEnd(options.barCompleteString.length);
     if (params.total <= 0) {
-      return `${description.substring(0, 50)} | ${bar} | ${params.value} bytes`;
+      return `${bar} | ${description.substring(0, 50)} | ${params.value} bytes`;
     } else {
-      return `${description.substring(0, 50)} | ${bar} | ${params.value}/${params.total} bytes`;
+      return `${bar} | ${description.substring(0, 50)} | ${params.value}/${params.total} bytes`;
     }
   }
 }
