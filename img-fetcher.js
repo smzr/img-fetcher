@@ -92,14 +92,12 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
       if (downloadedCount + skippedCount >= limit) {
         resolve();
       }
-
+       
       // Check if image URL is relative
-      const absoluteImageUrl = imageUrl;
-      if (!/^(?:[a-z]+:)?\/\//i.test(imageUrl)) {
-        absoluteImageUrl = resolve(`${baseProtocol}//${baseHostname}${basePath}`, imageUrl);
+      if (isRelativeURL(imageUrl)) {
+        absoluteImageUrl = new URL(imageUrl, baseImageUrl).href;
       }
-
-      // Create a name and path for to-be-downloaded image
+      
       const { pathname } = new URL(absoluteImageUrl);
       const imageName = basename(pathname);
       const filePath = `${outputDirectory}/${imageName}`;
@@ -157,6 +155,21 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
     });
   } catch (error) {
     console.error('Error occurred:', error.message);
+  }
+}
+
+/**
+ * Checks if a URL is relative.
+ * @param {string} url - The URL to check.
+ * @returns {boolean} - True if the URL is relative, false otherwise.
+ */
+function isRelativeURL(url) {
+  try {
+    const parsedURL = new URL(url);
+    return !parsedURL.protocol; // Returns true for relative URLs (no protocol)
+  } catch (error) {
+    // If parsing the URL throws an error, it is likely a relative URL
+    return true;
   }
 }
 
