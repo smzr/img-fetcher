@@ -92,6 +92,8 @@ async function downloadImagesFromWebPage(url, selector, outputDirectory, limit) 
       if (downloadedCount + skippedCount >= limit) {
         resolve();
       }
+
+      let absoluteImageUrl = imageUrl;
        
       // Check if image URL is relative
       if (isRelativeURL(imageUrl)) {
